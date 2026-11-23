@@ -1,0 +1,29 @@
+Campus Equipment Checkout | Schema and integrity check
+
+Run on a fresh local database with PostgreSQL's single-user backend.
+PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35221, 64-bit
+Scripts: sql/01_schema.sql, sql/02_seed_data.sql, tests/01_integrity_tests.sql
+
+Seed totals
+  borrowers = 1000
+  equipment_items = 300
+  loans = 30000
+  borrower_42_loans = 30
+  starting index on team6.loans = loans_pkey
+
+Integrity tests
+  1. Open loan accepted. loan_id = 30001, borrower_id = 42, equipment_id = 7, return_date IS NULL.
+  2. Unknown borrower rejected.
+     23503  insert or update on table "loans" violates foreign key constraint "loans_borrower_id_fkey"
+  3. Unknown item rejected.
+     23503  insert or update on table "loans" violates foreign key constraint "loans_equipment_id_fkey"
+  4. Early due date rejected.
+     23514  new row for relation "loans" violates check constraint "due_on_or_after_checkout"
+  5. Early return date rejected.
+     23514  new row for relation "loans" violates check constraint "return_on_or_after_checkout"
+  6. Missing due date rejected.
+     23502  null value in column "due_date" of relation "loans" violates not-null constraint
+  7. Duplicate borrower ID rejected.
+     23505  duplicate key value violates unique constraint "borrowers_pkey"
+
+Loan count after all test rollbacks = 30000
