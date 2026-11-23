@@ -2,7 +2,7 @@
 
 CSCE 4355 Database Administration · Team 6
 
-A campus lending desk needs to know who checked out each item, when it was due, and when it came back. This PostgreSQL project uses synthetic checkout records to test data integrity, staff permissions, and one borrower-history query.
+Problem Scenario: A campus lending desk needs to know who checked out each item, when it was due, and when it came back. Our PostgreSQL project uses synthetic, but realistic, checkout records to test data integrity, staff permissions, and one borrower-history query.
 
 | Team member | Module |
 | --- | --- |
@@ -12,7 +12,7 @@ A campus lending desk needs to know who checked out each item, when it was due, 
 
 ## Run the schema and load the data
 
-Use PostgreSQL and pgAdmin 4. The schema and data scripts use PostgreSQL 18 syntax. Use a local account that can create the project database and own its objects. Anthony also needs an authorized account that can create the test roles and switch to them.
+We are using PostgreSQL and pgAdmin 4. The schema and data scripts use PostgreSQL 18 syntax. Mason (author) will use a local account to create the project database and will own its objects. Anthony will use an authorized account that can create the test roles and switch to them.
 
 1. In pgAdmin, expand your PostgreSQL server, right-click **Databases**, and choose **Create → Database**. Name the new database `team6_checkout` and save. If you already have a copy with work in it, give the new database a different name.
 2. Right-click the new database and open **Query Tool**. Run `SELECT current_database(), version();` to check the connection and record the PostgreSQL version. Record the pgAdmin version from **Help → About**.
