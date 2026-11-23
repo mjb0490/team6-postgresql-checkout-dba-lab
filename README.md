@@ -4,6 +4,8 @@ CSCE 4355 Database Administration · Team 6
 
 Problem Scenario: A campus lending desk needs to know who checked out each item, when it was due, and when it came back. Our PostgreSQL project uses synthetic, but realistic, checkout records to test data integrity, staff permissions, and one borrower-history query.
 
+Our Project: Campus Equipment Checkout is a PostgreSQL database project for our CSCE 4355 - Database Administration course. It models how a campus lending desk tracks borrowers, equipment, and checkout history. Using 30,000 synthetic loan records, our team is testing how database constraints catch invalid checkouts, how staff roles control who can change records, and how an index affects the time it takes to retrieve one borrower’s loan history.
+
 | Team member | Module |
 | --- | --- |
 | Mason Bourn | Schema, sample data, and integrity tests |
