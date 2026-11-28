@@ -1,185 +1,62 @@
 # Campus Equipment Checkout
 
-CSCE 4355 Database Administration · Team 6
+**CSCE 4355 Database Administration · University of North Texas · Team 6**
 
-Problem Scenario: A campus lending desk needs to know who checked out each item, when it was due, and when it came back. Our PostgreSQL project uses synthetic, but realistic, checkout records to test data integrity, staff permissions, and one borrower-history query.
+A campus lending desk lends the same equipment to different borrowers over time. This PostgreSQL project models those checkouts and tests three questions. Which records should the database reject? Which changes can a checkout employee make? How much work does PostgreSQL do to find one borrower’s history?
 
-Our Project: Campus Equipment Checkout is a PostgreSQL database project for our CSCE 4355 - Database Administration course. It models how a campus lending desk tracks borrowers, equipment, and checkout history. Using 30,000 synthetic loan records, our team is testing how database constraints catch invalid checkouts, how staff roles control who can change records, and how an index affects the time it takes to retrieve one borrower’s loan history.
+| Team member | Module |
+| --- | --- |
+| Mason Bourn | Checkout schema, synthetic data, and integrity tests |
+| Anthony Carter | Reader and checkout-staff roles, grants, and access tests |
+| Jordan Bussa | Borrower-history query, composite index, and execution-plan comparison |
 
-|Team member|Module|
-|-|-|
-|Mason Bourn|Schema, sample data, and integrity tests|
-|Anthony Carter|Read-only and checkout-staff roles and permission tests|
-|Jordan Bussa|Borrower-history query, composite index, and before/after measurements|
+## Database and results
 
-## Run the schema and load the data
+The `team6` schema contains `borrowers`, `equipment`, and `loans`. Each loan references one borrower and one physical item. An open checkout has a null `return_date`. The due date and any recorded return date must fall on or after checkout.
 
-We are using PostgreSQL and pgAdmin 4. The schema and data scripts use PostgreSQL 18 syntax. Mason (author) will use a local account to create the project database and will own its objects. Anthony will use an authorized account that can create the test roles and switch to them.
+| Test | Observed result |
+| --- | --- |
+| Seed data | 1,000 borrowers, 300 items, and 30,000 historical loans. Borrower 42 has 30 loans. |
+| Data integrity | One open loan succeeded. Six invalid records were rejected. The loan count remained 30,000 after rollback. |
+| Role permissions | All nine tests matched expectations. Four operations succeeded and five returned SQLSTATE `42501` (insufficient privilege). |
+| Borrower history | Both saved plans returned 30 rows. Execution time fell from 4.097 ms to 0.518 ms (7.91× speedup for this pair). Shared buffer hits fell from 192 to 32. |
+| Index cost | The composite index occupied 672 kB alongside a 1,536 kB loans table. The experiment did not measure write overhead. |
 
-1. In pgAdmin, expand your PostgreSQL server, right-click **Databases**, and choose **Create → Database**. Name the new database `team6\_checkout` and save. If you already have a copy with work in it, give the new database a different name.
-2. Right-click the new database and open **Query Tool**. Run `SELECT current\_database(), version();` to check the connection and record the PostgreSQL version. Record the pgAdmin version from **Help → About**.
-3. Open `sql/01\_schema.sql` in the Query Tool and execute the whole file. In the browser tree, refresh **Schemas → team6 → Tables**.
-4. Open `sql/02\_seed\_data.sql` and execute it once. Its final query should show **1,000 borrowers, 300 equipment items, 30,000 loans, and 30 loans for borrower 42**. The script also runs `ANALYZE` so Jordan can take the baseline immediately.
-5. Open `tests/01\_integrity\_tests.sql`. Follow the selection instructions at the top. For a rejected insert, capture **Messages** with the constraint error, then run that test's `ROLLBACK;` on its own. The final check should still show 30,000 loans.
+The reader can query all three tables. Staff can also insert loans and update `loans.return_date`. The tests show that staff cannot edit due dates, change equipment records, or delete loans. The design allows multiple open loans on the same item, a limitation of the current schema.
 
-The schema script expects a new database. The seed script expects empty project tables. For another clean run, create a separate database and repeat steps 2–5. Each member can use their own local copy loaded from the same commit.
+## Run the project
 
-The starter was checked in an isolated PostgreSQL 18.1 database. The four counts matched, the open loan was accepted, and all six invalid inserts were rejected. After the test transactions were rolled back, the loan count was still 30,000. Run the cases in pgAdmin to collect the team's screenshots.
+**Environment.** The scripts were checked with PostgreSQL 18.1. The team used pgAdmin 4 for the demonstrations. Use a local PostgreSQL instance and an account that can create a database, own the project objects, create the two test roles, and switch to them. The role script creates `team6_reader` and `team6_staff` once per PostgreSQL instance. A fresh database on an instance that already has those role names will still see them. Use a separate clean instance for a full repeat from scratch.
 
-## Tables
+1. In pgAdmin, right-click **Databases → Create → Database**, enter `team6_checkout`, and save. Open **Query Tool** on that database and run `SELECT current_database(), version();`.
+2. Run [01_schema.sql](sql/01_schema.sql), then [02_seed_data.sql](sql/02_seed_data.sql) once on empty project tables. Confirm the four counts in the results table above.
+3. Open [01_integrity_tests.sql](tests/01_integrity_tests.sql). Work through each numbered case separately with auto-commit on. Execute from `BEGIN` through the operation, inspect its row or error, and then execute the case’s `ROLLBACK;` separately. Run the final count.
+4. Run [03_roles_privileges.sql](sql/03_roles_privileges.sql) once as the authorized setup account. Open [02_access_tests.sql](tests/02_access_tests.sql). For each role test, execute from `BEGIN` through the tested operation, inspect the result or error, and run `ROLLBACK;` separately. Finish with the role reset and row counts at the end of the file.
+5. Run [baseline_plan.sql](tests/baseline_plan.sql) in the lab database before measuring the indexed query. Its opening statements drop the project’s borrower-history index if present and refresh the statistics. Run the five `EXPLAIN` statements individually to see each plan. Treat the first run as a warm-up and record runs 2–5.
+6. Run [index.sql](sql/index.sql). It creates the index on `(borrower_id, checkout_date DESC)`, refreshes the statistics, and reports storage use.
+7. Run [indexed_plan.sql](tests/indexed_plan.sql) on the same data. Use the same warm-up and four measured runs. Compare the scan type, execution time, and shared buffer hits. The final count for borrower 42 should still be 30.
 
-|Table|Columns|How the desk uses it|
-|-|-|-|
-|`team6.borrowers`|`borrower\_id` (PK), `name`|One record per borrower. The seed file supplies the borrower numbers.|
-|`team6.equipment`|`equipment\_id` (PK), `item\_name`, `category`|One record per physical item. The seed file supplies the inventory numbers.|
-|`team6.loans`|`loan\_id` (identity PK), `borrower\_id` (FK), `equipment\_id` (FK), `checkout\_date`, `due\_date`, `return\_date`|Each loan references one borrower and one item. Both may appear in many loans. PostgreSQL assigns the loan number.|
+The execution times above come from the two saved plans. Timings vary across machines and runs. For each new comparison, use the same borrower, data, and SQL on both sides.
 
-Only `return\_date` can be NULL. That represents an item still checked out. A due date or return date can equal the checkout date, and both must be on or after checkout. A late return keeps its actual date. All 30,000 seed loans are completed checkouts. Test 1 shows an open loan and rolls it back.
+## Demonstration scenarios and evidence
 
-\## Security and Access Control
+- **Integrity.** Review the [seed counts](results/seed_counts.png) and [open loan](results/valid_open_loan.png). The [invalid due-date example](results/invalid_due_date.png) shows what happens when a checkout is due before it starts.
+- **Access control.** Compare the [reader’s denied insert](results/security/reader_insert_denied.png) with the [staff role’s successful insert](results/security/staff_insert_success.png). The [security evidence](results/security/) also covers grants, column-level updates, and final row counts.
+- **Performance.** Compare the [baseline plan](results/baseline_plan.png) and [indexed plan](results/indexed_plan.png). The first scanned all 30,000 loans. The second used a bitmap index scan followed by a bitmap heap scan. Both sorted the matching rows by checkout date. See the [index size](results/index_size.png) and [final borrower count](results/count_check.png).
 
+## Repository guide
 
-
-The database uses role-based access control (RBAC) to
-
-limit what users can access and modify. Two roles were
-
-created following the principle of least privilege:
-
-`team6\_reader` and `team6\_staff`.
-
-
-
-The reader role can view records but cannot modify them.
-
-The staff role can view records, create new checkout
-
-records, and update return dates. Neither role has
-
-administrative privileges.
-
-
-
-| Permission | Reader | Staff |
-
-| --- | --- | --- |
-
-| SELECT borrowers, equipment, and loans | Allowed | Allowed |
-
-| INSERT loans | Denied | Allowed |
-
-| UPDATE loan return\_date | Denied | Allowed |
-
-| UPDATE loan due\_date | Denied | Denied |
-
-| UPDATE equipment | Denied | Denied |
-
-| DELETE loans | Denied | Denied |
-
-
-
-\### Running the security scripts
-
-
-
-1\. Complete the schema and data setup.
-
-2\. Open `sql/03\_roles\_privileges.sql` in pgAdmin
-
-&#x20;  using an authorized administrator account.
-
-3\. Execute the role creation and permissions script once.
-
-4\. Open `tests/02\_access\_tests.sql`.
-
-5\. Execute each numbered test separately and verify
-
-&#x20;  the expected results.
-
-6\. Roll back test transactions to preserve the original
-
-&#x20;  records.
-
-
-
-\### Security test results
-
-
-
-All nine permission tests produced the expected results.
-
-Unauthorized operations were rejected with PostgreSQL
-
-error code 42501 (insufficient privilege).
-
-
-
-Final verification confirmed the original record counts:
-
-
-
-\- Borrowers: 1,000
-
-\- Equipment: 300
-
-\- Loans: 30,000
-
-
-
-Screenshots of the role verification, permissions,
-
-and access tests are available in
-
-\[results/security/]
-
-
-
-## Jordan's baseline
-
-Run this on the seeded database before creating the borrower/date index. Borrower 42 has 30 loans. Keep the SELECT and the dataset identical for both sets of measurements.
-
-```sql
-EXPLAIN (ANALYZE, BUFFERS)
-SELECT loan\_id, equipment\_id, checkout\_date, due\_date, return\_date
-FROM team6.loans
-WHERE borrower\_id = 42
-ORDER BY checkout\_date DESC;
-```
-
-The following query shows the starting indexes. The only one on `team6.loans` should be `loans\_pkey`.
-
-```sql
-SELECT indexname, indexdef
-FROM pg\_indexes
-WHERE schemaname = 'team6' AND tablename = 'loans'
-ORDER BY indexname;
-```
-
-Save the baseline output before running `sql/04\_indexes.sql`. Then repeat the same query with the composite index on `team6.loans (borrower\_id, checkout\_date)`. Record the scan and any sort, actual rows, execution time, and shared buffer hits/reads. A practical comparison is one warm-up followed by three measured runs per condition. Keep the raw plans and use the median time for each condition.
-
-## Where each file goes
-
-|Path|Purpose and order|
-|-|-|
-|`sql/01\_schema.sql`, `sql/02\_seed\_data.sql`|Included. Run in this order.|
-|`tests/01\_integrity\_tests.sql`|Included. Run each case separately after seeding.|
-|`sql/03\_roles\_privileges.sql`, `tests/02\_access\_tests.sql`|Anthony adds the roles/grants, then the allowed and denied operation tests. Use an authorized login for role switching and roll back test writes.|
-|`tests/03\_baseline\_plan.sql` → `sql/04\_indexes.sql` → `tests/04\_indexed\_plan.sql`|Jordan adds these in the order shown. Save the unindexed evidence before creating the index.|
-|`results/`|`01\_integrity\_check.txt` records the PostgreSQL 18.1 starter check. Add the team's pgAdmin evidence, role tests, and both query plans as they are recorded.|
-|`docs/`|Team checklist and `architecture.png`, the workflow diagram from Figure 1 of the proposal. Add the final project report here.|
-
-## Demo and final README
-
-1. Mason shows the three tables, seed counts, and a rejected loan in pgAdmin.
-2. Anthony shows which role is active, a permitted action, and a denied write.
-3. Jordan runs the borrower lookup and compares the saved baseline and indexed plans. Use a fresh seeded copy if repeating the live before/after sequence.
-4. The team summarizes the measurements, one limitation, and each member's contribution. Add the tested versions, final script order, measured results, and links to the report and recording here when available.
+| Folder | Contents |
+| --- | --- |
+| [sql/](sql/) | Schema, seed data, role grants, and index creation |
+| [tests/](tests/) | Integrity cases, permission tests, and the before/after query scripts |
+| [results/](results/) | Integrity test log, pgAdmin screenshots, and saved query plans |
+| [docs/](docs/) | [Final project report](docs/Team6_Final_Project_Report.docx) and [architecture diagram](docs/architecture.png) |
 
 ## References
 
-* [PostgreSQL documentation on constraints](https://www.postgresql.org/docs/18/ddl-constraints.html)
-* [PostgreSQL documentation on generate\_series](https://www.postgresql.org/docs/18/functions-srf.html)
-* [PostgreSQL documentation on privileges](https://www.postgresql.org/docs/18/ddl-priv.html)
-* [PostgreSQL documentation on EXPLAIN](https://www.postgresql.org/docs/18/using-explain.html)
-* [pgAdmin Query Tool documentation](https://www.pgadmin.org/docs/pgadmin4/latest/query_tool.html)
-
+- [PostgreSQL 18 — Constraints](https://www.postgresql.org/docs/18/ddl-constraints.html)
+- [PostgreSQL 18 — Privileges](https://www.postgresql.org/docs/18/ddl-priv.html)
+- [PostgreSQL 18 — EXPLAIN](https://www.postgresql.org/docs/18/sql-explain.html)
+- [PostgreSQL 18 — Bitmap scans and ordering](https://www.postgresql.org/docs/18/indexes-bitmap-scans.html)
+- [pgAdmin 4 — Query Tool](https://www.pgadmin.org/docs/pgadmin4/latest/query_tool.html)
